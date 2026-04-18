@@ -10,6 +10,17 @@ git log -1 --pretty=fuller
 ls -la
 ```
 
+## SSH checks
+
+Prefer SSH first when the machine is already configured for GitHub:
+
+```bash
+test -f ~/.ssh/config && sed -n '1,160p' ~/.ssh/config
+ssh -T git@github.com
+```
+
+If SSH works, keep the repository on an SSH remote when possible.
+
 ## Open-source baseline
 
 Before a public publish, check whether the repo should include:
@@ -38,6 +49,8 @@ gh auth status
 
 If `gh` is missing, prefer bootstrapping a temporary binary and continuing.
 
+When browser interaction is needed, prefer a logged-in Chrome CDP session over a fresh browser profile.
+
 ## Auth recovery
 
 Preferred sequence:
@@ -58,6 +71,7 @@ If TTY or browser flow is awkward, use device flow output that prints the URL an
 - Re-check `origin` before pushing.
 - Re-check that public-facing docs do not expose local usernames or absolute home-directory paths.
 - If the project is meant to feel complete, add the baseline project files before the first public push.
+- If GitHub shows `Confirm access`, treat it as a required user confirmation step and verify the setting after the user completes it.
 
 ## Final publish
 

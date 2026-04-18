@@ -1,11 +1,11 @@
 ---
 name: github-yeet-safe
-description: Use this skill when the user wants to publish a local project to GitHub, create a new GitHub repository, push code, or recover from missing gh/git auth during publishing. Prefer a reliable end-to-end flow with privacy checks, auth recovery, and git credential setup before pushing.
+description: Use when the user wants to publish a local project to GitHub, create a repository, push code, or recover from missing SSH or GitHub auth during publishing.
 ---
 
 # Safe GitHub Publish
 
-Use this skill when the user wants to publish a local repo to GitHub, especially if the environment may be missing `gh`, missing GitHub login state, or missing Git credential bridging.
+Use this skill when the user wants to publish a local repo to GitHub, especially if the environment may be missing `gh`, missing GitHub login state, missing SSH setup, or missing Git credential bridging.
 
 This skill exists to avoid repeating the same detours:
 
@@ -24,8 +24,8 @@ Before pushing, verify:
 
 1. the local repository is the intended one
 2. the content is safe to publish
-3. GitHub auth is available
-4. Git credential bridging is configured
+3. GitHub auth or SSH is available
+4. the intended git transport is configured
 5. the remote repository exists or can be created
 6. the repository has the minimum docs and metadata appropriate for sharing
 
@@ -36,31 +36,63 @@ Before pushing, verify:
    - absolute home-directory paths
    - local usernames
    - tokens, secrets, auth files, account metadata
-3. Check whether `gh` exists with `which gh`.
-4. If `gh` is missing, first check whether a GitHub connector or browser-backed GitHub session is available:
+3. Check whether SSH is already configured for GitHub:
+   - inspect `~/.ssh/config` when present
+   - inspect any dedicated GitHub identity files
+   - run `ssh -T git@github.com` to verify whether SSH auth already works
+4. If SSH is already healthy, prefer SSH remotes and do not detour into HTTPS-only recovery.
+5. Check whether `gh` exists with `which gh`.
+6. If `gh` is missing, first check whether a GitHub connector or browser-backed GitHub session is available:
    - if available, continue the publishing workflow through that path instead of blocking on `gh`
    - if not available, install or bootstrap `gh`
    - prefer an existing system install if available
    - otherwise download a temporary release binary locally and use that
-5. Check GitHub login with `gh auth status`.
-6. If not logged in, start auth recovery:
+7. Check GitHub login with `gh auth status` when the workflow still needs `gh` or HTTPS push.
+8. If not logged in, start auth recovery:
    - prefer browser or device-flow login
    - if device flow is used, clearly surface the URL and one-time code to the user
    - wait for the login to complete before continuing
-7. After login, always run `gh auth setup-git` before pushing over HTTPS.
-8. If the repo is intended to be shareable, verify git author identity is safe:
+9. After login, run `gh auth setup-git` before pushing over HTTPS, but skip this if the repo will push over SSH.
+10. If browser interaction is needed for GitHub settings or repo creation, prefer a reused logged-in Chrome CDP session:
+   - attach to the existing session first
+   - verify the target site is actually logged in before claiming success
+   - do not open a fresh no-login browser window when a persistent logged-in path exists
+11. If the repo is intended to be shareable, verify git author identity is safe:
    - avoid pushing machine-local emails or hostnames when a public-safe identity is better
    - prefer a GitHub `noreply` address when appropriate
-9. If the repo is meant to be a polished public project, check for minimum open-source project files:
+12. If the repo is meant to be a polished public project, check for minimum open-source project files:
    - `README.md`
    - `LICENSE`
    - `CONTRIBUTING.md` when contributions are welcome
    - `.gitignore`
-10. If missing, add the missing project files before publishing when the user intent clearly implies a shareable/open-source repo.
-11. Create the GitHub repo if it does not exist.
-12. If command-line push is available and authenticated, set or update `origin` and push.
-13. If command-line push is not available but the GitHub connector can create files or commits directly, use the connector path to publish the repository contents.
-14. Confirm the final repo URL.
+13. If missing, add the missing project files before publishing when the user intent clearly implies a shareable/open-source repo.
+14. Create the GitHub repo if it does not exist.
+15. If command-line push is available and authenticated, set or update `origin` and push using the verified transport.
+16. If command-line push is not available but the GitHub connector can create files or commits directly, use the connector path to publish the repository contents.
+17. Confirm the final repo URL.
+
+## SSH-First Path
+
+Prefer this order for actual git transport:
+
+1. already-working SSH to `git@github.com`
+2. existing `gh` with HTTPS credential bridging
+3. GitHub connector or browser-backed publishing when CLI transport is unavailable
+4. only then bootstrap new local auth tooling
+
+If `ssh -T git@github.com` succeeds, treat that as a strong signal to keep the repo on SSH and avoid unnecessary HTTPS reconfiguration.
+
+If SSH is desired but not yet configured, prefer creating a dedicated GitHub identity file such as `~/.ssh/github_<account>_ed25519` and wiring it through `~/.ssh/config`:
+
+```sshconfig
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/github_<account>_ed25519
+  IdentitiesOnly yes
+```
+
+This is especially useful when downstream tools such as OpenClaw rely on system SSH behavior instead of `gh`.
 
 ## Open Source Readiness
 
@@ -88,7 +120,7 @@ Use judgment. A tiny internal helper script does not need the same packaging as 
 
 ## gh Recovery Path
 
-Prefer this order:
+Prefer this order when SSH is not already solving the publish:
 
 1. existing `gh` on `PATH`
 2. GitHub connector or browser-backed GitHub session that can create repos and upload files
@@ -112,6 +144,8 @@ Use this path when it is faster and safer than trying to recover local `gh`.
 
 Do not stop at "repo created" if the user asked to upload the project. Repo creation alone is not publication.
 
+When browser interaction matters, prefer a logged-in Chrome CDP session over opening a fresh browser profile. Verify the actual page title, URL, and logged-in state before claiming the browser step succeeded.
+
 ## Auth Recovery Path
 
 When `gh auth status` fails:
@@ -121,7 +155,17 @@ When `gh auth status` fails:
 - if interactive TTY prompts are flaky, use a mode that prints a device URL and one-time code clearly
 - after the user says they completed auth, re-check with `gh auth status`
 
-Do not move on to repo creation or `git push` until `gh auth status` succeeds.
+Do not move on to repo creation or `git push` until the auth method you actually need has succeeded. SSH-successful flows do not need to block on `gh auth status`.
+
+## Sensitive Browser Confirmation
+
+GitHub may require a `Confirm access` or sudo-mode page before adding SSH keys or changing security-sensitive settings.
+
+- Do not treat this page as success.
+- Recognize it as a user confirmation step.
+- Preserve the pending form state when possible.
+- Ask the user to complete GitHub Mobile or email-code confirmation.
+- After the user confirms, re-open or re-check the destination page and verify the setting actually landed before telling the user it is done.
 
 ## Push Safety
 
@@ -144,6 +188,8 @@ git status --short
 git branch --show-current
 git remote -v
 git log -1 --pretty=fuller
+test -f ~/.ssh/config && sed -n '1,160p' ~/.ssh/config
+ssh -T git@github.com
 which gh
 gh auth status
 gh auth setup-git
@@ -157,6 +203,13 @@ gh repo create <owner>/<repo> --public --source <local_repo> --remote origin --p
 ```
 
 If the repo already exists, use normal git remote and push commands after auth is healthy.
+
+If SSH is healthy, prefer an SSH remote such as:
+
+```bash
+git remote set-url origin git@github.com:<owner>/<repo>.git
+git push -u origin <branch>
+```
 
 If normal git push is blocked but the GitHub connector can write files, continue with the connector instead of failing early.
 
@@ -175,6 +228,7 @@ Do not treat repo creation as complete if the result is technically online but s
 
 - Do not print tokens or secrets.
 - Do not assume browser auth succeeded until verified.
+- Do not open a fresh no-login browser session if a logged-in Chrome CDP path is available.
 - Do not push a public repo with obviously private content if it can be cleaned first.
 - Do not ask the user to do local investigation that can be done directly with commands.
 - Prefer continuing the workflow yourself instead of stopping at intermediate setup milestones.
