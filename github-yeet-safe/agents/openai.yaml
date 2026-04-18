@@ -1,0 +1,7 @@
+interface:
+  display_name: "Safe GitHub Publish"
+  short_description: "Publish repos with auth recovery and checks"
+  default_prompt: "Use $github-yeet-safe to publish a local repository to GitHub with auth recovery and share-safety checks."
+
+policy:
+  allow_implicit_invocation: true
