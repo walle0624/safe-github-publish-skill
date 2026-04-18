@@ -7,6 +7,18 @@ description: Use when the user wants to publish a local project to GitHub, creat
 
 Use this skill when the user wants to publish a local repo to GitHub, especially if the environment may be missing `gh`, missing GitHub login state, missing SSH setup, or missing Git credential bridging.
 
+## Handoff Rule
+
+Decide early:
+
+- If the task is "do something on GitHub" such as creating a repo, checking a PR, editing an issue, or reading CI, use the `github` skill.
+- If the task is "take this local project and get it safely published to GitHub," use this skill.
+
+Short version:
+
+- GitHub platform operation -> `github`
+- Local project publishing workflow -> `github-yeet-safe`
+
 This skill exists to avoid repeating the same detours:
 
 - assuming `gh` is installed when it is not
